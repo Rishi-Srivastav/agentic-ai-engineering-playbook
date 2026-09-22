@@ -1,0 +1,12 @@
+{
+  "name": "get_order",
+  "description": "Read one order belonging to the authenticated customer",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "orderId": {"type": "string", "minLength": 1, "maxLength": 64}
+    },
+    "required": ["orderId"],
+    "additionalProperties": false
+  }
+}

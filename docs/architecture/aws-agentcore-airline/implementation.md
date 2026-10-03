@@ -93,6 +93,104 @@ public class AgentService {
 
 The runtime client can evolve without changing the public API contract.
 
+
+## 4. Conversation-to-runtime session mapping
+
+Spring Boot should own a durable mapping between the authenticated user, the application conversation and the AgentCore Runtime session. It should not be responsible for storing the full conversational history.
+
+Use separate identifiers:
+
+~~~text
+userId / JWT subject
+      ↓
+conversationId
+      ↓
+runtimeSessionId
+~~~
+
+A DynamoDB table is a suitable implementation for the mapping:
+
+~~~text
+PK: USER#U789
+SK: CONVERSATION#C456
+runtimeSessionId: R123...
+createdAt: ...
+lastAccessedAt: ...
+status: ACTIVE
+~~~
+
+The request flow should be:
+
+~~~text
+Client
+  │ JWT + conversationId
+  ▼
+Spring Boot
+  │
+  ├─ validate JWT
+  ├─ derive userId from JWT subject
+  ├─ verify conversation ownership
+  └─ lookup runtimeSessionId
+  │
+  ▼
+AgentCore Runtime
+  │
+  └─ invoke using the same runtimeSessionId
+~~~
+
+Do not accept an arbitrary userId or runtimeSessionId from the client as authoritative. The authenticated JWT establishes identity, and Spring Boot resolves the runtime session from its own persisted mapping.
+
+Example service boundary:
+
+~~~java
+@Service
+@RequiredArgsConstructor
+public class ConversationService {
+
+    private final ConversationRepository repository;
+
+    public ConversationSession resolve(String userId, String conversationId) {
+        ConversationSession session = repository
+                .findByUserAndConversation(userId, conversationId)
+                .orElseThrow(() -> new AccessDeniedException("Conversation not found"));
+
+        return session;
+    }
+}
+~~~
+
+Then the agent invocation uses the resolved session rather than a client-supplied session ID:
+
+~~~java
+public AssistantResponse execute(
+        String userId,
+        String message,
+        String conversationId) {
+
+    ConversationSession conversation =
+            conversationService.resolve(userId, conversationId);
+
+    return runtimeClient.invoke(
+            userId,
+            conversation.conversationId(),
+            conversation.runtimeSessionId(),
+            message);
+}
+~~~
+
+### What each layer owns
+
+| Layer | Responsibility |
+|---|---|
+| Spring Boot | User identity, conversation ownership, conversationId → runtimeSessionId mapping |
+| AgentCore Runtime | Active agent execution/session continuity |
+| AgentCore Memory | Durable conversational memory when enabled and integrated |
+| Domain services | Authoritative business state |
+
+The mapping is therefore **not** the chat history. It is the control-plane association that tells the application which AgentCore session belongs to a particular user's conversation.
+
+If the Runtime session lifecycle ends, durable AgentCore Memory should be used to retain the information needed beyond that session. Do not assume that merely storing runtimeSessionId in DynamoDB creates durable conversational memory.
+
 ## 4. Agent policy
 
 A baseline policy:

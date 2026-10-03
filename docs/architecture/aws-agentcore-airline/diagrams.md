@@ -115,7 +115,36 @@ sequenceDiagram
  API-->>U: Response
 ~~~
 
-## 5. Read versus write
+
+## 5. Conversation and session ownership
+
+~~~mermaid
+sequenceDiagram
+ participant U as Client
+ participant IDP as Identity Provider
+ participant API as Spring Boot API
+ participant DB as Conversation Mapping Store
+ participant R as AgentCore Runtime
+ participant M as AgentCore Memory
+
+ U->>IDP: Authenticate
+ IDP-->>U: JWT
+ U->>API: message + conversationId + JWT
+ API->>API: Validate JWT and derive userId
+ API->>DB: Resolve userId + conversationId
+ DB-->>API: runtimeSessionId
+ API->>R: Invoke with same runtimeSessionId
+ R->>M: Read/write durable memory when configured
+ M-->>R: Conversation memory
+ R-->>API: Agent response
+ API-->>U: Response
+~~~
+
+The Spring Boot application owns the **user → conversation → runtime session mapping**. The mapping store is not the conversational history. AgentCore Runtime provides active session continuity, while AgentCore Memory provides durable conversational memory when enabled and integrated.
+
+The client should not be trusted to select an arbitrary user ID or AgentCore runtime session ID. Spring Boot derives identity from the authenticated token, verifies conversation ownership, and resolves the runtime session itself.
+
+## 6. Read versus write
 
 ~~~mermaid
 flowchart TD
@@ -136,7 +165,7 @@ flowchart TD
  AUDIT --> R
 ~~~
 
-## 6. Gateway bypass prevention
+## 7. Gateway bypass prevention
 
 ~~~mermaid
 flowchart LR
@@ -148,7 +177,7 @@ flowchart LR
  X -. "enforces" .-> T
 ~~~
 
-## 7. Failure isolation
+## 8. Failure isolation
 
 ~~~mermaid
 flowchart TB
@@ -164,7 +193,7 @@ flowchart TB
  X -. "isolated failure" .-> G
 ~~~
 
-## 8. Mutation safety state machine
+## 9. Mutation safety state machine
 
 ~~~mermaid
 stateDiagram-v2
@@ -182,7 +211,7 @@ stateDiagram-v2
  Success --> [*]
 ~~~
 
-## 9. Deployment pipeline
+## 10. Deployment pipeline
 
 ~~~mermaid
 flowchart LR
@@ -197,7 +226,7 @@ flowchart LR
  RB --> CAN
 ~~~
 
-## 10. Tool onboarding
+## 11. Tool onboarding
 
 ~~~mermaid
 flowchart TD
@@ -213,7 +242,7 @@ flowchart TD
  CAN --> PROD["Production"]
 ~~~
 
-## 11. Data movement
+## 12. Data movement
 
 ~~~mermaid
 flowchart LR
@@ -234,7 +263,7 @@ flowchart LR
 
 The model should receive the minimum useful representation of domain data, not unrestricted database records.
 
-## 12. Production reference
+## 13. Production reference
 
 ~~~mermaid
 flowchart TB

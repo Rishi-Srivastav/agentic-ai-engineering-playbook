@@ -125,6 +125,60 @@ Do not blindly forward arbitrary bearer tokens. Validate issuer, audience, expir
 
 For MCP authorization flows involving request state, the state should be integrity-protected, short-lived, replay-resistant and bound to the intended user/session.
 
+
+## 9. Conversation identity and session mapping
+
+The Spring Boot application should own the mapping between the authenticated user, the application conversation and the AgentCore Runtime session. It should **not** own the conversational history itself.
+
+Use three distinct identifiers:
+
+~~~text
+userId / JWT subject
+      ↓
+conversationId
+      ↓
+runtimeSessionId
+~~~
+
+For example:
+
+~~~text
+U789 → C456 → R123...
+U789 → C999 → R555...
+~~~
+
+The mapping should be persisted in a durable store such as DynamoDB so a Spring Boot pod restart, deployment or horizontal scaling does not lose the association. The application owns this mapping because it is responsible for deciding which authenticated user can access which conversation.
+
+A typical request flow is:
+
+1. The client sends an authenticated JWT and a conversation ID.
+2. Spring Boot derives the user identity from the validated JWT; it does **not** trust a client-provided userId.
+3. Spring Boot verifies that the conversation belongs to that user.
+4. Spring Boot resolves the conversation to its AgentCore Runtime session ID.
+5. Spring Boot invokes AgentCore Runtime using the same runtime session ID for subsequent turns in that conversation.
+6. AgentCore Memory, when configured and integrated, provides durable conversational memory such as prior interactions, summaries, facts and preferences.
+
+The client should not be allowed to choose an arbitrary AgentCore session ID. This prevents a user from attempting to attach to another user's conversation.
+
+Conceptually:
+
+~~~text
+Client
+  │ JWT + conversationId
+  ▼
+Spring Boot
+  │ authenticate + authorize
+  │ lookup: user → conversation → runtimeSession
+  ▼
+AgentCore Runtime
+  │ active session continuity
+  ▼
+AgentCore Memory
+  │ durable conversational memory
+~~~
+
+**Key distinction:** Spring Boot owns **identity and conversation-to-runtime-session mapping**; AgentCore Runtime provides **active execution/session continuity**; AgentCore Memory provides **durable agent memory**. The mapping is not the conversation history.
+
 ## 9. Preventing Gateway bypass
 
 The desired path is:
@@ -142,7 +196,7 @@ Agent ----------------> Domain
 
 The second path can become an authorization bypass. Use network controls, IAM/resource policies and service authentication so the governed path is the supported production path.
 
-## 10. Cross-account trust
+## 11. Cross-account trust
 
 Use AWS Organizations and explicit IAM/resource policies. Typical controls include:
 
@@ -158,7 +212,7 @@ Do not give an agent broad permissions such as account-wide API invocation or un
 
 The agent should receive capability-level permissions.
 
-## 11. Tool catalog
+## 12. Tool catalog
 
 ### Read tools
 
@@ -178,7 +232,7 @@ The agent should receive capability-level permissions.
 
 Read and write tools should be governed differently.
 
-## 12. Bounded autonomy
+## 13. Bounded autonomy
 
 A useful production policy is:
 
@@ -215,7 +269,7 @@ Agent:
 
 A general conversational request must not silently become permission for an irreversible mutation.
 
-## 13. Idempotency
+## 14. Idempotency
 
 Network failures make mutation retries dangerous.
 
@@ -231,7 +285,7 @@ The authoritative domain service persists the key and result. A duplicate reques
 
 If a write times out, do not blindly retry. Reconcile using the idempotency key or query authoritative booking state.
 
-## 14. MCP versus existing REST APIs
+## 15. MCP versus existing REST APIs
 
 Not every airline API needs to become an MCP server.
 
@@ -239,7 +293,7 @@ A mature REST/OpenAPI service can be exposed through a Gateway HTTP target when 
 
 Avoid creating a duplicate MCP service solely to wrap an existing API.
 
-## 15. Tool contracts
+## 16. Tool contracts
 
 A tool contract should define purpose, input constraints, authorization, side effects, errors, idempotency and PII classification.
 
@@ -264,7 +318,7 @@ Example:
 
 Tool descriptions are part of the agent control plane and should be versioned.
 
-## 16. Tool outputs are untrusted data
+## 17. Tool outputs are untrusted data
 
 A booking note, customer-entered string, support comment or partner API response can contain prompt-injection text.
 
@@ -272,7 +326,7 @@ Treat tool results as **data**, never as system instructions.
 
 Use schema validation, field allowlists, size limits, PII filtering and clear separation between data and instructions.
 
-## 17. PII minimization
+## 18. PII minimization
 
 Do not send an entire customer profile to the model when one field is required.
 
@@ -289,7 +343,7 @@ over raw customer records containing email, phone, passport, address and other u
 
 Conversation state should have explicit retention, encryption, isolation and deletion policies.
 
-## 18. Error handling
+## 19. Error handling
 
 | Error | Default behavior |
 |---|---|
@@ -304,7 +358,7 @@ Conversation state should have explicit retention, encryption, isolation and del
 
 Never use the same retry policy for reads and writes.
 
-## 19. Timeout budget
+## 20. Timeout budget
 
 Starting engineering budget, to be measured and tuned:
 
@@ -318,7 +372,7 @@ Domain API              3s
 
 These are engineering starting points, not AWS service guarantees.
 
-## 20. Resilience
+## 21. Resilience
 
 Use circuit breakers, bulkheads, bounded concurrency, request deadlines, connection pooling and rate limits.
 
@@ -326,7 +380,7 @@ If Flight Operations is degraded, the agent should still be able to answer an un
 
 Failure isolation is more important than simply adding retries.
 
-## 21. Observability
+## 22. Observability
 
 Correlate:
 
@@ -343,7 +397,7 @@ Measure latency, errors, retries, tool calls, model/token cost, circuit state an
 
 Avoid raw PII and authorization tokens in logs.
 
-## 22. Audit
+## 23. Audit
 
 Mutations should generate durable audit events containing actor, capability, booking/resource, timestamp, correlation ID, idempotency key and outcome.
 
@@ -363,7 +417,7 @@ Example:
 
 Audit should be separate from ordinary conversational telemetry.
 
-## 23. Continuous evaluation
+## 24. Continuous evaluation
 
 Evaluate:
 
@@ -394,7 +448,7 @@ until:
 
 Agent evaluations should be CI/CD gates.
 
-## 24. Deployment lifecycle
+## 25. Deployment lifecycle
 
 ~~~text
 Developer
@@ -410,7 +464,7 @@ Developer
 
 Prompt and tool changes are production behavior changes and should be versioned and evaluated.
 
-## 25. Tool onboarding
+## 26. Tool onboarding
 
 Production Gateway registration should verify:
 
@@ -427,7 +481,7 @@ Production Gateway registration should verify:
 11. Evaluation scenarios
 12. Rollback plan
 
-## 26. Multi-region
+## 27. Multi-region
 
 Separate AI availability from business-data authority.
 
@@ -437,7 +491,7 @@ Define RTO, RPO, routing, failover, failback and degraded-mode behavior explicit
 
 Do not create conflicting booking authorities simply to make the AI layer active/active.
 
-## 27. Cost controls
+## 28. Cost controls
 
 Agentic workflows can amplify downstream traffic. Control:
 
@@ -450,7 +504,7 @@ Agentic workflows can amplify downstream traffic. Control:
 - rate limits
 - runaway-loop detection
 
-## 28. Ownership
+## 29. Ownership
 
 | Area | Owner |
 |---|---|
@@ -465,7 +519,7 @@ Agentic workflows can amplify downstream traffic. Control:
 | Threat model | Security + Platform |
 | Audit/SIEM | Security |
 
-## 29. When not to use an agent
+## 30. When not to use an agent
 
 Use deterministic application logic for strict CRUD, fixed transaction orchestration, high-volume predictable processing, compliance rules and payment authorization.
 
@@ -473,7 +527,7 @@ Use an agent where natural-language intent, dynamic capability selection, multi-
 
 The strongest production architecture usually combines deterministic workflows with agentic reasoning.
 
-## 30. Production checklist
+## 31. Production checklist
 
 - [ ] Authenticated API and Gateway
 - [ ] Explicit authorization
@@ -492,7 +546,7 @@ The strongest production architecture usually combines deterministic workflows w
 - [ ] Multi-region/DR plan
 - [ ] Incident runbooks
 
-## 31. Final mental model
+## 32. Final mental model
 
 ~~~text
 API boundary
